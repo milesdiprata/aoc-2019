@@ -17,3 +17,7 @@ strum = { version = "0.28.0", features = ["derive"] }
 [profile.release]
 opt-level = 3
 lto = true
+
+[[bin]]
+name = "day1"
+path = "src/day1.rs"
