@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::collections::VecDeque;
 
 use anyhow::Error;
@@ -15,12 +16,14 @@ enum Opcode {
     LessThan,
     Equals,
     Halt,
+    RelativeBaseOffset,
 }
 
 #[derive(Clone, Copy, Debug)]
 enum Mode {
     Position,
     Immediate,
+    Relative,
 }
 
 #[derive(Debug)]
@@ -38,9 +41,10 @@ pub enum Run {
 
 #[derive(Clone, Debug)]
 pub struct IntcodeCpu {
-    mem: Vec<i64>,
+    mem: HashMap<usize, i64>,
     ip: usize,
     inputs: VecDeque<i64>,
+    relative_base: i64,
 }
 
 impl TryFrom<i64> for Opcode {
@@ -56,6 +60,7 @@ impl TryFrom<i64> for Opcode {
             6 => Ok(Self::JumpIfFalse),
             7 => Ok(Self::LessThan),
             8 => Ok(Self::Equals),
+            9 => Ok(Self::RelativeBaseOffset),
             99 => Ok(Self::Halt),
             _ => bail!("invalid opcode '{opcode}'"),
         }
@@ -69,6 +74,7 @@ impl TryFrom<i64> for Mode {
         match mode {
             0 => Ok(Self::Position),
             1 => Ok(Self::Immediate),
+            2 => Ok(Self::Relative),
             _ => bail!("invalid mode '{mode}'"),
         }
     }
@@ -93,31 +99,47 @@ impl TryFrom<i64> for Instruction {
 impl<I: Iterator<Item = i64>> From<I> for IntcodeCpu {
     fn from(program: I) -> Self {
         Self {
-            mem: program.collect(),
+            mem: program.enumerate().collect(),
             ip: 0,
             inputs: VecDeque::new(),
+            relative_base: 0,
         }
     }
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 impl IntcodeCpu {
-    /// Queue an input value for the next `Input` opcode.
-    pub fn push(&mut self, val: i64) {
-        self.inputs.push_back(val);
+    fn get(&self, addr: usize) -> i64 {
+        self.mem.get(&addr).copied().unwrap_or_default()
     }
 
-    fn read(&self, offset: usize, mode: Mode) -> i64 {
-        let val = self.mem[self.ip + offset];
+    fn get_mut(&mut self, addr: usize) -> &mut i64 {
+        self.mem.entry(addr).or_default()
+    }
+
+    fn addr(&self, offset: usize, mode: Mode) -> usize {
+        let param = self.get(self.ip + offset);
         match mode {
-            Mode::Position => self.mem[val as usize],
-            Mode::Immediate => val,
+            Mode::Position | Mode::Immediate => param as usize,
+            Mode::Relative => (param + self.relative_base) as usize,
         }
     }
 
-    fn write(&mut self, offset: usize, val: i64) {
-        let dst = self.mem[self.ip + offset] as usize;
-        self.mem[dst] = val;
+    fn read(&self, offset: usize, mode: Mode) -> i64 {
+        match mode {
+            Mode::Immediate => self.get(self.ip + offset),
+            Mode::Position | Mode::Relative => self.get(self.addr(offset, mode)),
+        }
+    }
+
+    fn write(&mut self, offset: usize, val: i64, mode: Mode) {
+        let dst = self.addr(offset, mode);
+        *self.get_mut(dst) = val;
+    }
+
+    /// Queue an input value for the next `Input` opcode.
+    pub fn push(&mut self, val: i64) {
+        self.inputs.push_back(val);
     }
 
     /// Run until the program produces an output, needs an input it does not
@@ -128,25 +150,25 @@ impl IntcodeCpu {
     /// Panics if the program contains an invalid instruction word.
     pub fn run(&mut self) -> Run {
         loop {
-            let instruction = Instruction::try_from(self.mem[self.ip]).unwrap();
+            let instruction = Instruction::try_from(self.get(self.ip)).unwrap();
             match instruction.opcode {
                 Opcode::Add => {
                     let a = self.read(1, instruction.modes[0]);
                     let b = self.read(2, instruction.modes[1]);
-                    self.write(3, a + b);
+                    self.write(3, a + b, instruction.modes[2]);
                     self.ip += 4;
                 }
                 Opcode::Mul => {
                     let a = self.read(1, instruction.modes[0]);
                     let b = self.read(2, instruction.modes[1]);
-                    self.write(3, a * b);
+                    self.write(3, a * b, instruction.modes[2]);
                     self.ip += 4;
                 }
                 Opcode::Input => {
                     let Some(input) = self.inputs.pop_front() else {
                         return Run::NeedsInput;
                     };
-                    self.write(1, input);
+                    self.write(1, input, instruction.modes[0]);
                     self.ip += 2;
                 }
                 Opcode::JumpIfTrue => {
@@ -168,13 +190,13 @@ impl IntcodeCpu {
                 Opcode::LessThan => {
                     let a = self.read(1, instruction.modes[0]);
                     let b = self.read(2, instruction.modes[1]);
-                    self.write(3, i64::from(a < b));
+                    self.write(3, i64::from(a < b), instruction.modes[2]);
                     self.ip += 4;
                 }
                 Opcode::Equals => {
                     let a = self.read(1, instruction.modes[0]);
                     let b = self.read(2, instruction.modes[1]);
-                    self.write(3, i64::from(a == b));
+                    self.write(3, i64::from(a == b), instruction.modes[2]);
                     self.ip += 4;
                 }
                 Opcode::Output => {
@@ -183,6 +205,11 @@ impl IntcodeCpu {
                     return Run::Output(output);
                 }
                 Opcode::Halt => return Run::Halted,
+                Opcode::RelativeBaseOffset => {
+                    let offset = self.read(1, instruction.modes[0]);
+                    self.relative_base += offset;
+                    self.ip += 2;
+                }
             }
         }
     }
