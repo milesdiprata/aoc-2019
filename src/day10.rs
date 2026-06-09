@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::ops::Index;
-use std::ops::Rem;
 use std::str::FromStr;
 use std::time::Instant;
+
+use aoc_2019::math;
 
 use anyhow::Error;
 use anyhow::Result;
@@ -58,19 +59,6 @@ impl Map {
     }
 }
 
-fn gcd<T>(mut a: T, mut b: T) -> T
-where
-    T: Copy + Default + PartialEq<T> + Rem<Output = T>,
-{
-    while b != T::default() {
-        let temp = b;
-        b = a % b;
-        a = temp;
-    }
-
-    a
-}
-
 fn part1(map: &Map) -> ((usize, usize), usize) {
     let mut station = None;
     let mut best = 0;
@@ -87,7 +75,7 @@ fn part1(map: &Map) -> ((usize, usize), usize) {
                 x.cast_signed() - x_target.cast_signed(),
                 y.cast_signed() - y_target.cast_signed(),
             );
-            let gcd = self::gcd(dx, dy).abs();
+            let gcd = math::gcd(dx, dy).abs();
 
             lines_of_sight.insert((dx / gcd, dy / gcd));
         }
@@ -119,7 +107,7 @@ fn part2(map: &Map, (x, y): (usize, usize)) -> usize {
             x.cast_signed() - x_target.cast_signed(),
             y.cast_signed() - y_target.cast_signed(),
         );
-        let gcd = self::gcd(dx, dy).abs();
+        let gcd = math::gcd(dx, dy).abs();
 
         let step = (dx / gcd, dy / gcd);
         let dist = ((dx * dx) + (dy * dy)).cast_unsigned();
