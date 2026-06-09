@@ -142,6 +142,12 @@ impl IntcodeCpu {
         self.inputs.push_back(val);
     }
 
+    /// Write a value directly to a memory address (e.g. inserting quarters by
+    /// setting address 0).
+    pub fn set(&mut self, addr: usize, val: i64) {
+        *self.get_mut(addr) = val;
+    }
+
     /// Run until the program produces an output, needs an input it does not
     /// have, or halts. Resumable: call again after pushing more input.
     ///
