@@ -120,7 +120,7 @@ fn part2(reactions: &[Reaction]) -> usize {
 
     // Invariant: ore_for_fuel(lo) <= ORE < ore_for_fuel(hi)
     while lo + 1 < hi {
-        let mid = (lo + (hi - lo)) / 2;
+        let mid = usize::midpoint(lo, hi - lo);
         if self::ore_for_fuel(&recipes, mid) <= ORE {
             lo = mid;
         } else {
